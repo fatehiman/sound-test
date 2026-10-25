@@ -65,16 +65,14 @@ sealed class MemoryLoop : ILoop
     public int Read(float[] buffer, int offset, int count)
     {
         if (samples.Length == 0) return 0;
-        int done = 0;
-        while (done < count)
+        // Plain loop on purpose: NAudio passes a byte[] disguised as float[]
+        // (WaveBuffer), and Array.Copy / Span copies throw on it.
+        for (int i = 0; i < count; i++)
         {
-            int n = (int)Math.Min(count - done, samples.Length - pos);
-            Array.Copy(samples, pos, buffer, offset + done, n);
-            done += n;
-            pos += n;
-            if (pos == samples.Length) pos = 0;
+            buffer[offset + i] = samples[pos];
+            if (++pos == samples.Length) pos = 0;
         }
-        return done;
+        return count;
     }
 
     public void Dispose() { }

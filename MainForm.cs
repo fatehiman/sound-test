@@ -192,6 +192,12 @@ sealed class MainForm : Form
             loop.CurrentTime = resume;
             output = new WasapiOut(speakerDevice, AudioClientShareMode.Shared, true, 100);
             output.Init(loop.ToWaveProvider());
+            var started = output;
+            started.PlaybackStopped += (_, e) =>
+            {
+                if (e.Exception != null && output == started)
+                    BeginInvoke(() => { StopPlayback(null); ShowStatus("Play error: " + e.Exception.Message); });
+            };
             output.Play();
             ShowStatus("Playing (repeat): " + Path.GetFileName(fileBox.Text));
         }
