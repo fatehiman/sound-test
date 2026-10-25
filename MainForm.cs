@@ -8,8 +8,8 @@ sealed class MainForm : Form
     const string DefaultName = "Default";
     const float FloorDb = -60f;
 
-    static readonly string SettingsFile = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SoundTest", "last-file.txt");
+    // Test tone shipped next to the exe; selected every time the app starts.
+    static readonly string DefaultFile = Path.Combine(AppContext.BaseDirectory, "sweep-400-800.mp3");
 
     sealed record DeviceItem(string Name, string? Id)
     {
@@ -30,7 +30,8 @@ sealed class MainForm : Form
 
     MMDevice? speakerDevice;
     WasapiOut? output;
-    AudioFileReader? reader;
+    ILoop? loop;
+    string? loopFile;
     WasapiCapture? capture;
     volatile float micPeak;  // highest mic sample since the last timer tick (written by the capture thread)
     float speakerShown, micShown;
@@ -82,8 +83,7 @@ sealed class MainForm : Form
         micBox.SelectedIndexChanged += (_, _) => { if (!loadingDevices) StartMic(); };
         meterTimer.Tick += (_, _) => UpdateMeters();
 
-        try { fileBox.Text = File.Exists(SettingsFile) ? File.ReadAllText(SettingsFile).Trim() : ""; }
-        catch (IOException) { }
+        if (File.Exists(DefaultFile)) fileBox.Text = DefaultFile;
 
         LoadDevices();
         meterTimer.Start();
@@ -172,12 +172,6 @@ sealed class MainForm : Form
         if (File.Exists(fileBox.Text)) dlg.InitialDirectory = Path.GetDirectoryName(fileBox.Text);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
         fileBox.Text = dlg.FileName;
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(SettingsFile)!);
-            File.WriteAllText(SettingsFile, dlg.FileName);
-        }
-        catch (IOException) { }
         if (output != null) StartPlayback();
     }
 
@@ -188,15 +182,16 @@ sealed class MainForm : Form
             ChooseFile();
             if (!File.Exists(fileBox.Text)) return;
         }
-        var resume = reader != null && reader.FileName == fileBox.Text ? reader.CurrentTime : TimeSpan.Zero;
+        var resume = loop != null && loopFile == fileBox.Text ? loop.CurrentTime : TimeSpan.Zero;
         StopPlayback(null);
         if (speakerDevice == null) return;
         try
         {
-            reader = new AudioFileReader(fileBox.Text);
-            if (resume < reader.TotalTime) reader.CurrentTime = resume;
+            loop = Loops.Open(fileBox.Text);
+            loopFile = fileBox.Text;
+            loop.CurrentTime = resume;
             output = new WasapiOut(speakerDevice, AudioClientShareMode.Shared, true, 100);
-            output.Init(new LoopStream(reader));
+            output.Init(loop.ToWaveProvider());
             output.Play();
             ShowStatus("Playing (repeat): " + Path.GetFileName(fileBox.Text));
         }
@@ -212,8 +207,8 @@ sealed class MainForm : Form
         output?.Stop();
         output?.Dispose();
         output = null;
-        reader?.Dispose();
-        reader = null;
+        loop?.Dispose();
+        loop = null;
         if (message != null) ShowStatus(message);
     }
 
